@@ -1,0 +1,6 @@
+torch>=2.4.0
+torchvision
+transformers>=4.57.0
+accelerate
+qwen-vl-utils[decord]>=0.0.14
+PyQt6
