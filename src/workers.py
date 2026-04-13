@@ -26,7 +26,9 @@ class CaptionWorker(QThread):
         for i, img_file in enumerate(images):
             if self.stop_requested: break
 
-            self.progress_update.emit(f"Processing {i + 1}/{total}: {img_file.name}", int((i / total) * 100))
+            # Calculate progress percentage (0 to 100)
+            progress = int((i / total) * 100)
+            self.progress_update.emit(f"Processing {i + 1}/{total}: {img_file.name}", progress)
             self.image_processing.emit(str(img_file))
 
             txt_path = img_file.with_suffix(".txt")
@@ -35,12 +37,29 @@ class CaptionWorker(QThread):
                 caption = txt_path.read_text(encoding='utf-8')
             else:
                 caption = generate_caption_api(self.config['url'], str(img_file), self.config['config_model'],
-                                               self.config['prompt'])
-                if caption and not caption.startswith("[ERROR]"):
-                    txt_path.write_text(caption, encoding="utf-8")
+                                               self.config['prompt'], self.config.get('backend', 'vllm'))
+                if caption and caption.startswith("[ERROR]"):
+                    self.finished.emit(f"Error during processing: {caption}")
+                    return
+                
+                # Apply Prefix and Suffix
+                prefix = self.config.get('prefix', '').strip()
+                suffix = self.config.get('suffix', '').strip()
+                
+                final_caption = caption
+                if prefix:
+                    final_caption = f"{prefix} {final_caption}".strip()
+                if suffix:
+                    final_caption = f"{final_caption} {suffix}".strip()
+                    
+                if final_caption:
+                    txt_path.write_text(final_caption, encoding="utf-8")
+                    caption = final_caption # for UI update
 
             self.image_finished.emit(str(img_file), caption)
 
+        if not self.stop_requested:
+            self.progress_update.emit("Processing Complete!", 100)
         self.finished.emit("Processing Stopped." if self.stop_requested else "Processing Complete!")
 
 class ImageLoader(QThread):

@@ -237,6 +237,8 @@ class CaptionItem(QFrame):
         super().__init__(parent)
         self.image_path = image_path
         self.fav_path = Path(image_path).with_suffix(Path(image_path).suffix + ".fav")
+        self.current_width = 250
+        self.current_height = 200
         self.setFixedWidth(270)
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.update_style()
@@ -279,7 +281,7 @@ class CaptionItem(QFrame):
         layout.addLayout(header_layout)
 
         self.image_label = QLabel()
-        self.image_label.setFixedSize(250, 200)
+        self.image_label.setFixedSize(self.current_width, self.current_height)
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setCursor(Qt.CursorShape.PointingHandCursor)
         self.image_label.setStyleSheet("background: #1e1e1e; border-radius: 4px;")
@@ -297,6 +299,13 @@ class CaptionItem(QFrame):
         self.load_image()
         self.load_existing_caption()
         self.load_favorite_state()
+
+    def set_thumbnail_size(self, width):
+        self.current_width = width
+        self.current_height = int(width * 0.8)
+        self.setFixedWidth(width + 20)
+        self.image_label.setFixedSize(self.current_width, self.current_height)
+        self.load_image()
 
     def update_style(self):
         is_fav = self.fav_path.exists()
@@ -330,13 +339,13 @@ class CaptionItem(QFrame):
         
         if not pixmap.isNull():
             self.image_label.setPixmap(
-                pixmap.scaled(250, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                pixmap.scaled(self.current_width, self.current_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             )
         else:
             pixmap = QPixmap(self.image_path)
             if not pixmap.isNull():
                 self.image_label.setPixmap(
-                    pixmap.scaled(250, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    pixmap.scaled(self.current_width, self.current_height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 )
 
     def resizeEvent(self, event):

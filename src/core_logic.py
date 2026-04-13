@@ -33,25 +33,42 @@ def ensure_thumbnail(image_path, size=(250, 200)):
         print(f"Thumbnail error for {image_path}: {e}")
         return image_path
 
-def generate_caption_api(base_url, image_path, model, system_prompt):
+def generate_caption_api(base_url, image_path, model, system_prompt, backend="vllm"):
     base_url = base_url.rstrip("/")
-    url = f"{base_url}/api/generate"
     image_base64 = encode_image_to_base64(image_path)
-
     if not image_base64:
         return "[ERROR] Image encoding failed."
 
-    payload = {
-        "model": model,
-        "prompt": f"{system_prompt}\n\nDescribe this image in detail.",
-        "images": [image_base64],
-        "stream": False
-    }
-
     try:
-        response = requests.post(url, json=payload, timeout=120)
-        response.raise_for_status()
-        return response.json().get("response", "").strip()
+        if backend == "ollama":
+            url = f"{base_url}/api/generate"
+            payload = {
+                "model": model,
+                "prompt": f"{system_prompt}\n\nDescribe this image in detail.",
+                "images": [image_base64],
+                "stream": False
+            }
+            response = requests.post(url, json=payload, timeout=120)
+            response.raise_for_status()
+            return response.json().get("response", "").strip()
+        else:  # vllm / llama.cpp (OpenAI-compatible)
+            url = f"{base_url}/v1/chat/completions"
+            ext = Path(image_path).suffix.lower().lstrip(".")
+            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_base64}"}},
+                        {"type": "text", "text": "Describe this image in detail."}
+                    ]}
+                ],
+                "max_tokens": 512
+            }
+            response = requests.post(url, json=payload, timeout=120)
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         return f"[ERROR] {str(e)}"
 
