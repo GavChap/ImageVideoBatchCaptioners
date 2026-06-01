@@ -70,6 +70,7 @@ class OllamaCaptionerApp(QMainWindow):
         model_group = QGroupBox("Model")
         model_layout = QVBoxLayout(model_group)
         self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
         model_layout.addWidget(self.model_combo)
 
         settings_layout.addWidget(dir_group, 2)
@@ -283,18 +284,53 @@ class OllamaCaptionerApp(QMainWindow):
                 resp = requests.get(f"{base}/api/tags", timeout=3)
                 resp.raise_for_status()
                 models = [m['name'] for m in resp.json().get('models', [])]
-            else:
+            elif backend == "llama.cpp":
+                models = []
+                # 1. Try OpenAI-compatible models endpoint
+                try:
+                    resp = requests.get(f"{base}/v1/models", timeout=3)
+                    if resp.status_code == 200:
+                        models = [m['id'] for m in resp.json().get('data', []) if 'id' in m]
+                except Exception:
+                    pass
+                
+                # 2. Try llama.cpp native props endpoint
+                if not models:
+                    try:
+                        resp = requests.get(f"{base}/props", timeout=3)
+                        if resp.status_code == 200:
+                            model_path = resp.json().get("model_path", "")
+                            if model_path:
+                                models = [os.path.basename(model_path)]
+                    except Exception:
+                        pass
+                
+                # 3. Fallback placeholder so user is not blocked
+                if not models:
+                    models = ["llama.cpp loaded model"]
+            else:  # vLLM
                 resp = requests.get(f"{base}/v1/models", timeout=3)
                 resp.raise_for_status()
                 models = [m['id'] for m in resp.json().get('data', [])]
+            
             self.model_combo.clear()
             self.model_combo.addItems(models)
             self.status_label.setText("Models loaded.")
         except requests.exceptions.RequestException:
-            self.status_label.setText(f"Could not connect to {backend}. Is it running?")
-            self.model_combo.clear()
+            if backend == "llama.cpp":
+                self.model_combo.clear()
+                self.model_combo.addItems(["llama.cpp loaded model"])
+                self.status_label.setText("Could not query model details from llama.cpp. Using fallback model.")
+            else:
+                self.status_label.setText(f"Could not connect to {backend}. Is it running?")
+                self.model_combo.clear()
         except Exception:
-            self.status_label.setText("An unexpected error occurred loading models.")
+            if backend == "llama.cpp":
+                self.model_combo.clear()
+                self.model_combo.addItems(["llama.cpp loaded model"])
+                self.status_label.setText("Error loading models. Using fallback model.")
+            else:
+                self.status_label.setText("An unexpected error occurred loading models.")
 
     def load_default_prompt(self):
         default = "Your function is to generate an exacting and objective visual description."

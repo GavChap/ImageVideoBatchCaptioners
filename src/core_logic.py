@@ -27,6 +27,15 @@ def ensure_thumbnail(image_path, size=(250, 200)):
     try:
         with Image.open(image_path) as img:
             img.thumbnail(size)
+            if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+                # Composite transparent image onto a white background
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                # Handle cases where P or LA split might need conversion
+                alpha = img.convert("RGBA").split()[-1]
+                bg.paste(img.convert("RGBA"), mask=alpha)
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
             img.save(thumb_path, "JPEG", quality=85)
         return str(thumb_path)
     except Exception as e:
@@ -35,9 +44,27 @@ def ensure_thumbnail(image_path, size=(250, 200)):
 
 def generate_caption_api(base_url, image_path, model, system_prompt, backend="vllm"):
     base_url = base_url.rstrip("/")
-    image_base64 = encode_image_to_base64(image_path)
-    if not image_base64:
-        return "[ERROR] Image encoding failed."
+    ext = Path(image_path).suffix.lower()
+    
+    # llama.cpp's stb_image does not support webp, and some image formats have decoding issues.
+    # Convert WebP or any image for llama.cpp backend into standard JPEG in memory.
+    if backend == "llama.cpp" or ext == ".webp":
+        import io
+        try:
+            with Image.open(image_path) as img:
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=95)
+                image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+                mime = "image/jpeg"
+        except Exception as e:
+            return f"[ERROR] Failed to convert image to standard JPEG for compatibility: {str(e)}"
+    else:
+        image_base64 = encode_image_to_base64(image_path)
+        if not image_base64:
+            return "[ERROR] Image encoding failed."
+        mime = "image/jpeg" if ext in (".jpg", ".jpeg") else f"image/{ext.lstrip('.')}"
 
     try:
         if backend == "ollama":
@@ -53,8 +80,6 @@ def generate_caption_api(base_url, image_path, model, system_prompt, backend="vl
             return response.json().get("response", "").strip()
         else:  # vllm / llama.cpp (OpenAI-compatible)
             url = f"{base_url}/v1/chat/completions"
-            ext = Path(image_path).suffix.lower().lstrip(".")
-            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
             payload = {
                 "model": model,
                 "messages": [
